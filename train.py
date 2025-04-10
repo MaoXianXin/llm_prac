@@ -10,7 +10,7 @@ model, tokenizer = FastLanguageModel.from_pretrained(
     # "unsloth/Qwen2.5-0.5B", "unsloth/Qwen2.5-1.5B", "unsloth/Qwen2.5-3B"
     # "unsloth/Qwen2.5-14B",  "unsloth/Qwen2.5-32B",  "unsloth/Qwen2.5-72B",
     # And also all Instruct versions and Math. Coding verisons!
-    model_name = "/home/mao/.cache/huggingface/hub/models--unsloth--qwen2.5-7b-unsloth-bnb-4bit/snapshots/d455b8ed8fa1ceb03f1df717098829fd6fc40ae8",
+    model_name = "unsloth/Qwen2.5-0.5B",
     max_seq_length = max_seq_length,
     dtype = dtype,
     load_in_4bit = load_in_4bit,
@@ -135,3 +135,5 @@ model.save_pretrained("lora_model")  # Local saving
 tokenizer.save_pretrained("lora_model")
 
 
+model.save_pretrained_merged("model_16bit", tokenizer, save_method = "merged_16bit",)
+model.save_pretrained_merged("model_4bit", tokenizer, save_method = "merged_4bit_forced",)
