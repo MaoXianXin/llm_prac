@@ -1,13 +1,11 @@
 from unsloth import FastLanguageModel
 import torch
 max_seq_length = 2048 # Choose any! We auto support RoPE Scaling internally!
-dtype = None # None for auto detection. Float16 for Tesla T4, V100, Bfloat16 for Ampere+
-load_in_4bit = True # Use 4bit quantization to reduce memory usage. Can be False.
 
 
 model, tokenizer = FastLanguageModel.from_pretrained(
     model_name = "/home/mao/workspace/llm_prac/models--Qwen--Qwen2.5-0.5B-Instruct/snapshots/a8b602d9dafd3a75d382e62757d83d89fca3be54",
-    max_seq_length = 2048,
+    max_seq_length = max_seq_length,
     dtype = torch.bfloat16,
     load_in_4bit=True,
     load_in_8bit=False,
