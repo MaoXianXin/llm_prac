@@ -6,15 +6,12 @@ load_in_4bit = True # Use 4bit quantization to reduce memory usage. Can be False
 
 
 model, tokenizer = FastLanguageModel.from_pretrained(
-    # Can select any from the below:
-    # "unsloth/Qwen2.5-0.5B", "unsloth/Qwen2.5-1.5B", "unsloth/Qwen2.5-3B"
-    # "unsloth/Qwen2.5-14B",  "unsloth/Qwen2.5-32B",  "unsloth/Qwen2.5-72B",
-    # And also all Instruct versions and Math. Coding verisons!
-    model_name = "unsloth/Qwen2.5-0.5B",
-    max_seq_length = max_seq_length,
-    dtype = dtype,
-    load_in_4bit = load_in_4bit,
-    # token = "hf_...", # use one if using gated models like meta-llama/Llama-2-7b-hf
+    model_name = "/home/mao/workspace/llm_prac/models--Qwen--Qwen2.5-0.5B-Instruct/snapshots/a8b602d9dafd3a75d382e62757d83d89fca3be54",
+    max_seq_length = 2048,
+    dtype = torch.bfloat16,
+    load_in_4bit=True,
+    load_in_8bit=False,
+    full_finetuning=False,
 )
 
 model = FastLanguageModel.get_peft_model(
