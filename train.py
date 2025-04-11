@@ -56,7 +56,11 @@ def formatting_prompts_func(examples):
     return { "text" : texts, }
 
 from datasets import load_dataset
-dataset = load_dataset("yahma/alpaca-cleaned", split = "train")
+dataset = load_dataset(
+    "json", 
+    data_files="/home/mao/workspace/llm_prac/datasets--yahma--alpaca-cleaned/snapshots/12567cabf869d7c92e573c7c783905fc160e9639/alpaca_data_cleaned.json",
+    split="train"
+)
 dataset = dataset.map(formatting_prompts_func, batched = True,)
 
 from trl import SFTTrainer
