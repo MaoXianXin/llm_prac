@@ -12,6 +12,9 @@ model, tokenizer = FastLanguageModel.from_pretrained(
     full_finetuning=False,
 )
 
+# 明确设置 pad_token 为 eos_token
+tokenizer.pad_token = tokenizer.eos_token
+
 model = FastLanguageModel.get_peft_model(
     model,
     r = 16, # Choose any number > 0 ! Suggested 8, 16, 32, 64, 128
