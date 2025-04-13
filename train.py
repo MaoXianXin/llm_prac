@@ -4,10 +4,10 @@ max_seq_length = 2048 # Choose any! We auto support RoPE Scaling internally!
 
 
 model, tokenizer = FastLanguageModel.from_pretrained(
-    model_name = "/home/mao/workspace/llm_prac/models--Qwen--Qwen2.5-0.5B-Instruct/snapshots/a8b602d9dafd3a75d382e62757d83d89fca3be54",
+    model_name = "/home/mao/workspace/llm_prac/models--Qwen--Qwen2.5-1.5B/snapshots/8faed761d45a263340a0528343f099c05c9a4323",
     max_seq_length = max_seq_length,
     dtype = torch.bfloat16,
-    load_in_4bit=True,
+    load_in_4bit=False,
     load_in_8bit=False,
     full_finetuning=False,
 )
@@ -78,7 +78,7 @@ trainer = SFTTrainer(
         gradient_accumulation_steps = 4,
         warmup_steps = 5,
         # num_train_epochs = 1, # Set this for 1 full training run.
-        max_steps = 10,
+        max_steps = 100,
         learning_rate = 2e-4,
         fp16 = not is_bfloat16_supported(),
         bf16 = is_bfloat16_supported(),

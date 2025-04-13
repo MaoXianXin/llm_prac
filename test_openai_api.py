@@ -9,9 +9,10 @@ client = OpenAI(
 )
 
 chat_response = client.chat.completions.create(
-    model="Qwen2.5-0.5B-FP16",
+    model="Qwen2.5-1.5B-FP16",
     messages=[
-        {"role": "user", "content": "你是谁?"},
+        {"role": "user", "content": "Give three tips for staying healthy."},
+        {"role": "user_context", "content": "You are a doctor."},
     ],
     max_tokens=500
 )
