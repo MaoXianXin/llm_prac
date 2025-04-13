@@ -12,7 +12,7 @@ client = OpenAI(
 chat_response = client.chat.completions.create(
     model="Qwen2.5-1.5B-FP16",  # 确保这里的模型名称与你在vLLM中部署的模型名称一致
     messages=[
-        {"role": "user", "content": "4-bit quantization is good enough for most LLMs with billions of parameters."},
+        {"role": "user", "content": "标题：1-bit Quantization: Run Models with Trillions of Parameters on"},
     ],
     max_tokens=500,
     temperature=0.1,  # 可以调整生成的随机性
@@ -24,16 +24,3 @@ print("Chat response:", chat_response)
 content = chat_response.choices[0].message.content
 
 print("Chat response content:", content)
-
-# 测试另一个与你的训练数据相关的提示
-print("\n--- 测试与训练数据相关的提示 ---\n")
-chat_response2 = client.chat.completions.create(
-    model="Qwen2.5-1.5B-FP16",
-    messages=[
-        {"role": "user", "content": "Switch Transformer has 1.6"},
-    ],
-    max_tokens=500
-)
-
-content2 = chat_response2.choices[0].message.content
-print("Chat response content:", content2)
