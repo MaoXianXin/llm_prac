@@ -55,9 +55,21 @@ dataset = Dataset.from_dict(dataset)
 
 # 对文本进行分词处理
 def tokenize_function(examples):
-    # 添加EOS标记到每个文本末尾
-    texts = [text + tokenizer.eos_token for text in examples["text"]]
-    return tokenizer(texts, truncation=True, max_length=max_seq_length)
+    # 先进行tokenization，不添加特殊标记
+    tokenized_inputs = tokenizer(
+        examples["text"], 
+        truncation=True, 
+        max_length=max_seq_length-1,  # 预留一个位置给EOS标记
+        add_special_tokens=False  # 不自动添加特殊标记
+    )
+    
+    # 手动在每个序列末尾添加EOS标记
+    for i in range(len(tokenized_inputs["input_ids"])):
+        tokenized_inputs["input_ids"][i].append(tokenizer.eos_token_id)
+        if "attention_mask" in tokenized_inputs:
+            tokenized_inputs["attention_mask"][i].append(1)
+    
+    return tokenized_inputs
 
 # 对数据集进行预处理
 tokenized_dataset = dataset.map(
