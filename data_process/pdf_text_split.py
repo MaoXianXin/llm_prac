@@ -105,6 +105,55 @@ class PDFProcessor:
             
         return chunks
     
+    def process_directory(self, dir_path, chunk_size=2000, chunk_overlap=200, min_tokens=500, print_stats=True, output_dir=None):
+        """
+        处理目录中的所有PDF文件
+        
+        Args:
+            dir_path: 包含PDF文件的目录路径
+            chunk_size: 每个chunk的目标token数量
+            chunk_overlap: chunk之间的重叠token数量
+            min_tokens: 过滤掉小于此token数量的chunks
+            print_stats: 是否打印统计信息
+            output_dir: 保存chunks的目录路径，如果提供则将chunks保存为txt文件
+            
+        Returns:
+            字典，键为PDF文件名，值为对应的chunks列表
+        """
+        if not os.path.exists(dir_path):
+            raise FileNotFoundError(f"目录不存在: {dir_path}")
+            
+        # 获取目录中所有PDF文件
+        pdf_files = [f for f in os.listdir(dir_path) if f.lower().endswith('.pdf')]
+        
+        if not pdf_files:
+            print(f"目录 {dir_path} 中没有找到PDF文件")
+            return {}
+            
+        print(f"在目录 {dir_path} 中找到 {len(pdf_files)} 个PDF文件")
+        
+        # 处理每个PDF文件
+        results = {}
+        for pdf_file in pdf_files:
+            pdf_path = os.path.join(dir_path, pdf_file)
+            print(f"\n处理文件: {pdf_file}")
+            
+            try:
+                chunks = self.process_pdf(
+                    file_path=pdf_path,
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap,
+                    min_tokens=min_tokens,
+                    print_stats=print_stats,
+                    output_dir=output_dir
+                )
+                results[pdf_file] = chunks
+            except Exception as e:
+                print(f"处理文件 {pdf_file} 时出错: {str(e)}")
+                results[pdf_file] = []
+                
+        return results
+    
     def save_chunks_to_txt(self, chunks, output_dir, pdf_filename):
         """
         将chunks保存为单独的txt文件
@@ -155,21 +204,44 @@ if __name__ == "__main__":
     processor = PDFProcessor()
     
     # 设置参数
-    file_path = "/home/mao/Downloads/《置身时代的社会理论》史蒂文·塞德曼【文字版_PDF电子书_雅书】.pdf"
+    input_path = "/home/mao/Downloads/PDF书籍"  # 可以是单个PDF文件或包含PDF文件的目录
     chunk_size = 2000
     chunk_overlap = 200
     min_tokens = 500
     output_dir = "/home/mao/Documents/pdf_chunks"  # 指定输出目录
     
-    # 处理PDF
-    chunks = processor.process_pdf(
-        file_path=file_path,
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        min_tokens=min_tokens,
-        output_dir=output_dir  # 添加输出目录参数
-    )
+    # 检查输入路径是文件还是目录
+    if os.path.isfile(input_path):
+        # 处理单个PDF文件
+        chunks = processor.process_pdf(
+            file_path=input_path,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            min_tokens=min_tokens,
+            output_dir=output_dir
+        )
+        
+        # 可以进一步处理chunks
+        if chunks:
+            print(f"\n示例chunk内容: {chunks[0][:100]}...")
     
-    # 可以进一步处理chunks
-    if chunks:
-        print(f"\n示例chunk内容: {chunks[0][:100]}...")
+    elif os.path.isdir(input_path):
+        # 处理目录中的所有PDF文件
+        results = processor.process_directory(
+            dir_path=input_path,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            min_tokens=min_tokens,
+            output_dir=output_dir
+        )
+        
+        # 打印处理结果摘要
+        print("\n处理结果摘要:")
+        for pdf_file, chunks in results.items():
+            if chunks:
+                print(f"{pdf_file}: 生成了 {len(chunks)} 个chunks")
+            else:
+                print(f"{pdf_file}: 处理失败或没有生成chunks")
+    
+    else:
+        print(f"输入路径不存在: {input_path}")
