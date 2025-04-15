@@ -75,7 +75,7 @@ class PDFProcessor:
         
         return filtered_chunks
     
-    def process_pdf(self, file_path, chunk_size=2000, chunk_overlap=200, min_tokens=500, print_stats=True):
+    def process_pdf(self, file_path, chunk_size=2000, chunk_overlap=200, min_tokens=500, print_stats=True, output_dir=None):
         """
         处理PDF文件的完整流程
         
@@ -85,6 +85,7 @@ class PDFProcessor:
             chunk_overlap: chunk之间的重叠token数量
             min_tokens: 过滤掉小于此token数量的chunks
             print_stats: 是否打印统计信息
+            output_dir: 保存chunks的目录路径，如果提供则将chunks保存为txt文件
             
         Returns:
             分割后的文本chunks列表
@@ -98,7 +99,36 @@ class PDFProcessor:
         if print_stats:
             self.print_statistics(pdf_text, chunks)
             
+        # 如果提供了输出目录，保存chunks到txt文件
+        if output_dir and chunks:
+            self.save_chunks_to_txt(chunks, output_dir, os.path.basename(file_path))
+            
         return chunks
+    
+    def save_chunks_to_txt(self, chunks, output_dir, pdf_filename):
+        """
+        将chunks保存为单独的txt文件
+        
+        Args:
+            chunks: 文本chunks列表
+            output_dir: 输出目录路径
+            pdf_filename: 原PDF文件名，用于生成输出文件名
+        """
+        # 确保输出目录存在
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+            print(f"创建输出目录: {output_dir}")
+        
+        # 获取不带扩展名的PDF文件名
+        base_name = os.path.splitext(pdf_filename)[0]
+        
+        # 保存每个chunk到单独的txt文件
+        for i, chunk in enumerate(chunks):
+            output_file = os.path.join(output_dir, f"{base_name}_chunk_{i+1}.txt")
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(chunk)
+        
+        print(f"已将{len(chunks)}个chunks保存到目录: {output_dir}")
     
     def print_statistics(self, full_text, chunks):
         """打印文本处理的统计信息"""
@@ -129,13 +159,15 @@ if __name__ == "__main__":
     chunk_size = 2000
     chunk_overlap = 200
     min_tokens = 500
+    output_dir = "/home/mao/Documents/pdf_chunks"  # 指定输出目录
     
     # 处理PDF
     chunks = processor.process_pdf(
         file_path=file_path,
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
-        min_tokens=min_tokens
+        min_tokens=min_tokens,
+        output_dir=output_dir  # 添加输出目录参数
     )
     
     # 可以进一步处理chunks
