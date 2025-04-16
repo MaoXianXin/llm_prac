@@ -1,15 +1,15 @@
 from unsloth import FastLanguageModel
 import torch
-max_seq_length = 2048 # Choose any! We auto support RoPE Scaling internally!
+max_seq_length = 4096 # Choose any! We auto support RoPE Scaling internally!
 
 
 model, tokenizer = FastLanguageModel.from_pretrained(
-    model_name = "/home/mao/workspace/llm_prac/models--Qwen--Qwen2.5-1.5B/snapshots/8faed761d45a263340a0528343f099c05c9a4323",
+    model_name = "/home/mao/.cache/huggingface/hub/models--Qwen--Qwen2.5-0.5B/snapshots/060db6499f32faf8b98477b0a26969ef7d8b9987",
     max_seq_length = max_seq_length,
     dtype = torch.bfloat16,
     load_in_4bit=False,
     load_in_8bit=False,
-    full_finetuning=False,
+    full_finetuning=True,
 )
 
 # 明确设置 pad_token 为 eos_token
@@ -30,36 +30,52 @@ model = FastLanguageModel.get_peft_model(
     loftq_config = None, # And LoftQ
 )
 
-alpaca_prompt = """Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
-
-### Instruction:
-{}
-
-### Input:
-{}
-
-### Response:
-{}"""
+# Replace the alpaca_prompt with ChatML template
+# We'll use the template from the template_chatml.jinja file
+chatml_template = """{% for message in messages %}{{'<|im_start|>' + message['role'] + '\n' + message['content']}}{% if (loop.last and add_generation_prompt) or not loop.last %}{{ '<|im_end|>' + '\n'}}{% endif %}{% endfor %}
+{% if add_generation_prompt and messages[-1]['role'] != 'assistant' %}{{ '<|im_start|>assistant\n' }}{% endif %}"""
 
 EOS_TOKEN = tokenizer.eos_token # Must add EOS_TOKEN
+
 def formatting_prompts_func(examples):
-    instructions = examples["instruction"]
-    inputs       = examples["input"]
-    outputs      = examples["output"]
+    # 修改函数以适应实际数据格式
+    conversations_list = examples.get("conversations", [])
     texts = []
-    for instruction, input, output in zip(instructions, inputs, outputs):
-        # Must add EOS_TOKEN, otherwise your generation will go on forever!
-        text = alpaca_prompt.format(instruction, input, output) + EOS_TOKEN
-        texts.append(text)
-    return { "text" : texts, }
+    
+    for conversations in conversations_list:
+        formatted_text = ""
+        for message in conversations:
+            # 将 "from" 映射到 "role"，将 "value" 映射到 "content"
+            role = "user" if message['from'] == "user" else "assistant"
+            formatted_text += f"<|im_start|>{role}\n{message['value']}<|im_end|>\n"
+        
+        # 如果最后一条消息不是助手，添加助手提示
+        if conversations and conversations[-1]['from'] != "assistant":
+            formatted_text += "<|im_start|>assistant\n"
+        
+        # 添加 EOS_TOKEN
+        formatted_text += EOS_TOKEN
+        texts.append(formatted_text)
+    
+    return {"text": texts}
 
 from datasets import load_dataset
+# 更新数据集路径
 dataset = load_dataset(
     "json", 
-    data_files="/home/mao/workspace/llm_prac/datasets--yahma--alpaca-cleaned/snapshots/12567cabf869d7c92e573c7c783905fc160e9639/alpaca_data_cleaned.json",
+    data_files="/home/mao/workspace/medium_scrape/flask_endpoint/data_preparation/conversation_records.json",  # 请替换为您的实际数据集路径
     split="train"
 )
-dataset = dataset.map(formatting_prompts_func, batched = True,)
+
+# 打印原始数据集的第一条数据
+print("原始数据集的第一条数据:")
+print(dataset[0])
+
+dataset = dataset.map(formatting_prompts_func, batched=True,)
+
+# 打印处理后数据集的第一条数据
+print("\n处理后数据集的第一条数据:")
+print(dataset[0])
 
 from trl import SFTTrainer
 from transformers import TrainingArguments
@@ -76,9 +92,9 @@ trainer = SFTTrainer(
     args = TrainingArguments(
         per_device_train_batch_size = 2,
         gradient_accumulation_steps = 4,
-        warmup_steps = 5,
-        # num_train_epochs = 1, # Set this for 1 full training run.
-        max_steps = 100,
+        warmup_steps = 20,
+        num_train_epochs = 5, # Set this for 1 full training run.
+        # max_steps = 100,
         learning_rate = 2e-4,
         fp16 = not is_bfloat16_supported(),
         bf16 = is_bfloat16_supported(),
@@ -119,23 +135,27 @@ print(f"Peak reserved memory for training % of max memory = {lora_percentage} %.
 
 
 FastLanguageModel.for_inference(model) # Enable native 2x faster inference
-inputs = tokenizer(
-[
-    alpaca_prompt.format(
-        "Continue the fibonnaci sequence.", # instruction
-        "1, 1, 2, 3, 5, 8", # input
-        "", # output - leave this blank for generation!
-    )
-], return_tensors = "pt").to("cuda")
+
+# Example of a ChatML formatted input for inference
+chatml_input = """<|im_start|>system
+You are a helpful AI assistant.
+<|im_end|>
+<|im_start|>user
+Continue the fibonacci sequence: 1, 1, 2, 3, 5, 8
+<|im_end|>
+<|im_start|>assistant
+"""
+
+inputs = tokenizer([chatml_input], return_tensors="pt").to("cuda")
 
 from transformers import TextStreamer
 text_streamer = TextStreamer(tokenizer)
-_ = model.generate(**inputs, streamer = text_streamer, max_new_tokens = 128)
+_ = model.generate(**inputs, streamer=text_streamer, max_new_tokens=128)
 
 
-model.save_pretrained("lora_model")  # Local saving
-tokenizer.save_pretrained("lora_model")
+# model.save_pretrained("lora_model")  # Local saving
+# tokenizer.save_pretrained("lora_model")
 
 
-model.save_pretrained_merged("model_16bit", tokenizer, save_method = "merged_16bit",)
-model.save_pretrained_merged("model_4bit", tokenizer, save_method = "merged_4bit_forced",)
+# model.save_pretrained_merged("model_16bit", tokenizer, save_method = "merged_16bit",)
+# model.save_pretrained_merged("model_4bit", tokenizer, save_method = "merged_4bit_forced",)
