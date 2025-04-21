@@ -8,7 +8,7 @@ dtype = None # None for auto detection. Float16 for Tesla T4, V100, Bfloat16 for
 load_in_4bit = True # Use 4bit quantization to reduce memory usage. Can be False.
 
 model, tokenizer = FastLanguageModel.from_pretrained(
-    model_name = "unsloth/mistral-7b-v0.3-bnb-4bit", # Choose ANY! eg teknium/OpenHermes-2.5-Mistral-7B
+    model_name = "unsloth/Qwen2.5-0.5B-bnb-4bit", # Choose ANY! eg teknium/OpenHermes-2.5-Mistral-7B
     max_seq_length = max_seq_length,
     dtype = dtype,
     load_in_4bit = load_in_4bit,
