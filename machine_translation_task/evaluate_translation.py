@@ -1,27 +1,31 @@
-# evaluate_translation.py
+import nltk
+from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 import json
 import torch
+import jieba # <-- Added for Chinese tokenization
+from tqdm import tqdm # <-- Added for progress bar
+
+# --- Unsloth/Transformers Imports (from test_sft_inference.py) ---
 from unsloth import FastLanguageModel
-from transformers import TextStreamer # Keep if you want streaming for debugging, remove for pure evaluation
-from tqdm import tqdm # For progress bar
-import nltk # For BLEU score calculation
-from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction, corpus_bleu
+# from transformers import TextStreamer # Not needed for batch processing
+from unsloth.chat_templates import get_chat_template
 
-# --- 配置 ---
-json_file_path = './translation_data.json' # 确保路径正确
-model_name = "unsloth/Qwen2.5-0.5B-Instruct-bnb-4bit"
+# --- Configuration ---
+json_file_path = './translation_data.json'
+model_path = "/home/mao/workspace/llm_prac/instruct-finetuning/output/checkpoint-471" # <-- Specify your model path
 max_seq_length = 2048
-dtype = None
-load_in_4bit = True
-device = "cuda" if torch.cuda.is_available() else "cpu"
-max_new_tokens_gen = 128 # Max tokens to generate for translation
+load_in_4bit = True # Set to False if you have enough VRAM and want faster inference
+num_samples_to_evaluate = 100 # <-- How many samples to evaluate? Set to None to evaluate all.
 
-# --- 1. 加载数据 ---
+# --- 1. 加载翻译数据 ---
 print(f"正在从文件读取数据: {json_file_path}")
 try:
     with open(json_file_path, 'r', encoding='utf-8') as f_json:
         translation_data = json.load(f_json)
     print(f"成功加载 {len(translation_data)} 条翻译数据。")
+    if num_samples_to_evaluate is not None:
+        translation_data = translation_data[:num_samples_to_evaluate]
+        print(f"将评估前 {num_samples_to_evaluate} 条数据。")
 except FileNotFoundError:
     print(f"错误：文件未找到 '{json_file_path}'。")
     exit()
@@ -32,110 +36,122 @@ except Exception as e:
     print(f"读取文件时发生错误: {e}")
     exit()
 
-# --- 2. 加载模型和 Tokenizer ---
-print(f"正在加载模型: {model_name}")
+# --- 2. 加载LLM模型和分词器 ---
+print(f"正在加载模型: {model_path}")
 model, tokenizer = FastLanguageModel.from_pretrained(
-    model_name = model_name,
-    max_seq_length = max_seq_length,
-    dtype = dtype,
-    load_in_4bit = load_in_4bit,
+    model_name=model_path,
+    max_seq_length=max_seq_length,
+    load_in_4bit=load_in_4bit,
+    dtype=None, # dtype is automatically handled by Unsloth
 )
-FastLanguageModel.for_inference(model) # Enable native 2x faster inference
-print("模型加载完成。")
 
-# --- 3. 定义 Prompt 模板 ---
-# 使用更明确的翻译指令
-chatml_prompt_template = """<|im_start|>system
-You are a helpful assistant specialized in translation. Translate the following English sentence into Chinese.<|im_end|>
-<|im_start|>user
-English: {}
-Chinese:<|im_end|>
-<|im_start|>assistant
-"""
+# --- 3. 设置Chat Template ---
+# Make sure the mapping matches how your model was trained
+tokenizer = get_chat_template(
+    tokenizer,
+    mapping={"role": "from", "content": "value", "user": "human", "assistant": "gpt"}, # Adjust if your roles are different
+    chat_template="chatml", # Or the template your model expects
+)
+# Add pad token if missing
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
+    print("设置 pad_token 为 eos_token")
 
-# --- 4. & 5. 推理和评估 ---
-references = []
-hypotheses = []
-chencherry = SmoothingFunction() # BLEU smoothing
+# --- 4. 准备模型进行推理 ---
+model = FastLanguageModel.for_inference(model)
+print("模型已准备好进行推理。")
 
-print("开始进行翻译评估...")
-# 使用 tqdm 显示进度条
+# --- 5. 评估循环 ---
+bleu_scores = []
+chencherry = SmoothingFunction()
 
-# Limit the data to the first 100 items (or fewer if the dataset is smaller)
-num_samples_to_evaluate = 100
-data_to_evaluate = translation_data[:num_samples_to_evaluate]
-print(f"将仅评估前 {len(data_to_evaluate)} 条数据。") # Inform the user
+print(f"\n开始评估 {len(translation_data)} 个样本...")
+for item in tqdm(translation_data):
+    en_sentence = item.get('en')
+    ref_translation = item.get('ch')
 
-# Update the loop to iterate over the sliced data
-for item in tqdm(data_to_evaluate, desc=f"Evaluating first {len(data_to_evaluate)} samples"):
-    en_text = item.get('en')
-    ref_ch_text = item.get('ch')
-
-    if not en_text or not ref_ch_text:
-        print(f"跳过无效数据项: {item}")
+    if not en_sentence or not ref_translation:
+        print(f"跳过不完整的条目: {item}")
         continue
 
-    # 构建 Prompt
-    prompt = chatml_prompt_template.format(en_text)
-    inputs = tokenizer([prompt], return_tensors="pt").to(device)
+    # --- 准备模型输入 ---
+    # We add a clear instruction for the model
+    messages = [
+        {"from": "human", "value": f"{en_sentence}"},
+    ]
+    inputs = tokenizer.apply_chat_template(
+        messages,
+        tokenize=True,
+        add_generation_prompt=True, # Add the prompt for the assistant's turn
+        return_tensors="pt",
+    ).to("cuda" if torch.cuda.is_available() else "cpu") # Move inputs to GPU if available
 
-    # 模型生成 (不使用 streamer 获取最终输出)
-    # eos_token_id for Qwen2.5-0.5B-Instruct is 151645 (<|im_end|>)
-    # You might need to adjust eos_token_id based on the specific model version if needed.
-    # Using tokenizer.eos_token_id is generally safer if defined.
-    eos_token_id = tokenizer.eos_token_id if tokenizer.eos_token_id is not None else 151645
+    # --- 生成翻译 (Hypothesis) ---
+    # Note: We don't use TextStreamer here as we need the final output string
+    # Adjust max_new_tokens based on expected translation length
+    with torch.no_grad(): # Disable gradient calculation for inference
+        outputs = model.generate(
+            input_ids=inputs,
+            max_new_tokens=128, # Adjust as needed
+            use_cache=True, # Enable cache for faster generation
+            pad_token_id=tokenizer.pad_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+        )
 
-    outputs = model.generate(
-        **inputs,
-        max_new_tokens=max_new_tokens_gen,
-        eos_token_id=eos_token_id,
-        pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id is not None else eos_token_id, # Avoid warning
-        do_sample=False # Use greedy decoding for deterministic output
-    )
+    # Decode only the newly generated tokens, skipping the input prompt
+    # outputs[0] takes the first (and only) batch element
+    # inputs.shape[1] gives the length of the input sequence
+    generated_ids = outputs[0, inputs.shape[1]:]
+    hyp_translation = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
 
-    # 解码生成的文本，跳过 prompt 部分和特殊 token
-    # inputs.input_ids.shape[1] gives the length of the prompt tokens
-    output_tokens = outputs[0, inputs.input_ids.shape[1]:]
-    hyp_ch_text = tokenizer.decode(output_tokens, skip_special_tokens=True).strip()
+    # --- 预处理 (Tokenization using Jieba) ---
+    # Reference needs to be a list of lists of tokens
+    reference_tokens = [list(jieba.cut(ref_translation))]
+    # Hypothesis needs to be a list of tokens
+    hypothesis_tokens = list(jieba.cut(hyp_translation))
 
-    # 准备 BLEU 计算所需格式 (这里使用字符级 BLEU 作为简单示例)
-    # NLTK's corpus_bleu expects: list of references, list of hypotheses
-    # Each reference in the list of references should be a list of sentences (if multiple refs per hyp)
-    # Each sentence should be a list of tokens.
-    # Here: one reference per hypothesis, tokenizing by character.
-    reference_tokens = [list(ref_ch_text)] # List containing one reference sentence, tokenized by char
-    hypothesis_tokens = list(hyp_ch_text)   # Hypothesis sentence, tokenized by char
+    # --- 计算 BLEU 分数 ---
+    try:
+        bleu_score = sentence_bleu(
+            reference_tokens,
+            hypothesis_tokens,
+            smoothing_function=chencherry.method4 # Common smoothing method
+        )
+        bleu_scores.append(bleu_score)
+    except ZeroDivisionError:
+        print(f"警告: Hypothesis 为空，无法计算 BLEU。")
+        print(f"  EN: {en_sentence}")
+        print(f"  REF: {ref_translation}")
+        print(f"  HYP: {hyp_translation}")
+        bleu_scores.append(0.0) # Assign 0 score for empty hypothesis
+    except Exception as e:
+        print(f"计算 BLEU 时发生错误: {e}")
+        print(f"  EN: {en_sentence}")
+        print(f"  REF: {ref_translation}")
+        print(f"  HYP: {hyp_translation}")
+        bleu_scores.append(0.0) # Assign 0 score on error
 
-    references.append(reference_tokens)
-    hypotheses.append(hypothesis_tokens)
+    # Optional: Print individual results for debugging
+    # print(f"\nEN: {en_sentence}")
+    # print(f"REF: {ref_translation}")
+    # print(f"HYP: {hyp_translation}")
+    # print(f"BLEU: {bleu_score:.4f}")
 
-    # (可选) 打印一些样本进行检查
-    if len(hypotheses) % 50 == 0: # Print every 50 samples
-       print(f"\n--- Sample {len(hypotheses)} ---")
-       print(f"  EN: {en_text}")
-       print(f"  REF CH: {ref_ch_text}")
-       print(f"  HYP CH: {hyp_ch_text}")
-       # Calculate sentence BLEU for this sample (optional)
-       # sample_bleu = sentence_bleu(reference_tokens, hypothesis_tokens, smoothing_function=chencherry)
-       # print(f"  Sample BLEU: {sample_bleu:.4f}")
+# --- 6. 计算并输出平均 BLEU 分数 ---
+if bleu_scores:
+    average_bleu = sum(bleu_scores) / len(bleu_scores)
+    print(f"\n--- 评估完成 ---")
+    print(f"评估样本数: {len(bleu_scores)}")
+    print(f"平均 BLEU 分数: {average_bleu:.4f}")
 
-# --- 6. 计算整体 BLEU 分数 ---
-print("\n计算整体 BLEU 分数...")
-if references and hypotheses:
-    # weights can be adjusted, (1.0,) for BLEU-1, (0.5, 0.5) for BLEU-2, etc.
-    # Default is BLEU-4: (0.25, 0.25, 0.25, 0.25)
-    corpus_bleu_score = corpus_bleu(references, hypotheses, smoothing_function=chencherry.method7)
-    print(f"\n评估完成!")
-    print(f"数据集: {json_file_path}")
-    print(f"模型: {model_name}")
-    print(f"评估样本数: {len(hypotheses)}") # Updated label for clarity
-    print(f"整体 Corpus BLEU-4 分数 (字符级): {corpus_bleu_score:.4f}")
-    print(f"BLEU 分数越高越好 (范围 0 到 1)。")
+    # --- Interpretation of Average Score ---
+    if average_bleu > 0.5:
+        print("整体解释: 翻译质量较高。")
+    elif average_bleu > 0.3:
+        print("整体解释: 翻译质量中等，可能存在一些不流畅或不准确之处。")
+    elif average_bleu > 0.1:
+        print("整体解释: 翻译质量较低，可能难以理解。")
+    else:
+        print("整体解释: 翻译质量非常低。")
 else:
-    print("没有有效的翻译结果可供评估。")
-
-# --- (可选) 安装 NLTK ---
-# 如果你还没有安装 nltk，请运行: pip install nltk tqdm
-# 第一次使用 nltk 可能需要下载数据:
-# import nltk
-# nltk.download('punkt') # punkt 是常用的分词器数据，虽然这里字符级BLEU不直接用，但安装nltk时建议下载
+    print("\n没有计算任何 BLEU 分数。请检查数据和配置。")
