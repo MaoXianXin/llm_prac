@@ -15,7 +15,7 @@ json_file_path = './translation_data.json'
 model_path = "/home/mao/workspace/llm_prac/instruct-finetuning/output/checkpoint-471" # <-- Specify your model path
 max_seq_length = 2048
 load_in_4bit = True # Set to False if you have enough VRAM and want faster inference
-num_samples_to_evaluate = 100 # <-- How many samples to evaluate? Set to None to evaluate all.
+num_samples_to_evaluate = 1000 # <-- How many samples to evaluate? Set to None to evaluate all.
 
 # --- 1. 加载翻译数据 ---
 print(f"正在从文件读取数据: {json_file_path}")
@@ -96,6 +96,7 @@ for item in tqdm(translation_data):
             use_cache=True, # Enable cache for faster generation
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
+            do_sample=False
         )
 
     # Decode only the newly generated tokens, skipping the input prompt
@@ -132,10 +133,10 @@ for item in tqdm(translation_data):
         bleu_scores.append(0.0) # Assign 0 score on error
 
     # Optional: Print individual results for debugging
-    # print(f"\nEN: {en_sentence}")
-    # print(f"REF: {ref_translation}")
-    # print(f"HYP: {hyp_translation}")
-    # print(f"BLEU: {bleu_score:.4f}")
+    print(f"\nEN: {en_sentence}")
+    print(f"REF: {ref_translation}")
+    print(f"HYP: {hyp_translation}")
+    print(f"BLEU: {bleu_score:.4f}")
 
 # --- 6. 计算并输出平均 BLEU 分数 ---
 if bleu_scores:
